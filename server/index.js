@@ -1,14 +1,19 @@
+import "dotenv/config";
 import express from "express";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
-dotenv.config();
 import cors from "cors"
 import cookieParser from "cookie-parser";
+import { createRouteHandler } from "uploadthing/express";
+import { uploadRouter } from "./uploadthing.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
+
+// uploadthing must be mounted after cookieParser so the auth middleware
+// can read the access_token cookie.
+app.use("/api/uploadthing", createRouteHandler({ router: uploadRouter }));
 
 //import routes
 import userRoutes from "./routes/userRoute.js";

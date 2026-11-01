@@ -1,13 +1,7 @@
 import { useSelector } from "react-redux";
 import { Link } from "react-router-dom";
-import { useRef, useState, useEffect } from "react";
-import {
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytesResumable,
-} from "firebase/storage";
-import { app } from "../firebase";
+import { useRef, useState } from "react";
+import { useUploadThing } from "../utils/uploadthing";
 import {
   updateUserStart,
   updateUserSuccess,
@@ -16,12 +10,13 @@ import {
   deleteUserStart,
   deleteUserSuccess,
   signOutUserStart,
+  signOutUserSuccess,
+  signOutUserFailure,
 } from "../redux/user/userSlice";
 import { useDispatch } from "react-redux";
 export default function Profile() {
   const fileRef = useRef(null);
   const { currentUser, loading, error } = useSelector((state) => state.user);
-  const [file, setFile] = useState(undefined);
   const [filePerc, setFilePerc] = useState(0);
   const [fileUploadError, setFileUploadError] = useState(false);
   const [formData, setFormData] = useState({});
@@ -30,34 +25,29 @@ export default function Profile() {
   const [userListings, setUserListings] = useState([]);
   const dispatch = useDispatch();
 
-  useEffect(() => {
-    if (file) {
-      handleFileUpload(file);
-    }
-  }, [file]);
-
-  const handleFileUpload = (file) => {
-    const storage = getStorage(app);
-    const fileName = new Date().getTime() + file.name;
-    const storageRef = ref(storage, fileName);
-    const uploadTask = uploadBytesResumable(storageRef, file);
-
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const progress =
-          (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        setFilePerc(Math.round(progress));
-      },
-      (error) => {
-        setFileUploadError(true);
-      },
-      () => {
-        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) =>
-          setFormData({ ...formData, avatar: downloadURL })
-        );
+  const { startUpload, isUploading } = useUploadThing("avatarUploader", {
+    onClientUploadComplete: (res) => {
+      if (res?.[0]) {
+        setFormData((prev) => ({ ...prev, avatar: res[0].url }));
       }
-    );
+      setFilePerc(100);
+    },
+    onUploadProgress: (progress) => {
+      setFilePerc(Math.round(progress));
+    },
+    onUploadError: () => {
+      setFilePerc(0);
+      setFileUploadError(true);
+    },
+  });
+
+  const handleFileUpload = (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setFileUploadError(false);
+    setFilePerc(0);
+    startUpload([selectedFile]);
   };
 
   const handleChange = (e) => {
@@ -111,12 +101,12 @@ export default function Profile() {
       const res = await fetch("/api/auth/signout");
       const data = await res.json();
       if (data.success === false) {
-        dispatch(deleteUserFailure(data.message));
+        dispatch(signOutUserFailure(data.message));
         return;
       }
-      dispatch(deleteUserSuccess(data));
+      dispatch(signOutUserSuccess(data));
     } catch (error) {
-      dispatch(deleteUserFailure(data.message));
+      dispatch(signOutUserFailure(error.message));
     }
   };
 
@@ -160,11 +150,12 @@ export default function Profile() {
       <h1 className="text-3xl font-semibold text-center my-7">Profile</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <input
-          onChange={(e) => setFile(e.target.files[0])}
+          onChange={handleFileUpload}
           type="file"
           ref={fileRef}
           hidden
           accept="image/*"
+          disabled={isUploading}
         />
         <img
           onClick={() => fileRef.current.click()}
@@ -173,12 +164,12 @@ export default function Profile() {
           className="self-center object-cover w-24 h-24 mt-2 rounded-full cursor-pointer"
         />
         <p className="self-center text-sm">
-          {fileUploadError ? (
-            <span className="text-red-700">
-              Error Image upload (image must be less than 2 mb)
-            </span>
-          ) : filePerc > 0 && filePerc < 100 ? (
+          {isUploading ? (
             <span className="text-slate-700">{`Uploading ${filePerc}%`}</span>
+          ) : fileUploadError ? (
+            <span className="text-red-700">
+              Error uploading image (image must be less than 2 mb)
+            </span>
           ) : filePerc === 100 ? (
             <span className="text-green-700">Image successfully uploaded!</span>
           ) : (
